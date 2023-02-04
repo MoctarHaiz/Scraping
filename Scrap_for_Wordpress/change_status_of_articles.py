@@ -1,3 +1,12 @@
+########################### Read Me First ###############################
+# This Code updated the status of all posts that have 
+# low pageviews. 
+# The robot code to google analytics to select the posts
+# that have many views & keep only those posts are published.
+# The other ones are unpublished.
+# To cope with serve side efficiency, the posts of the website 
+# are retrieved by post_batch_size
+
 # https://gist.github.com/345161974/63573abdf1dc9c303d6740fb29496657
 import urllib.request  # python 2 urllib
 from wordpress_xmlrpc import Client, WordPressPost
@@ -6,104 +15,81 @@ import xmlrpc  # python 2 xmlrpclib
 from wordpress_xmlrpc.compat import xmlrpc_client
 from wordpress_xmlrpc.methods import media, posts
 import os
-########################### Read Me First ###############################
+import time 
+from GoogleAnalyticsReport import GoogleAnalyticsReport
 
 
-class My_WP_XMLRPC:
-    def postArticle(self, wpUrl, wpLogin, wpPassword, postTitle, postCategories, postMetaDescription, postContent, postTags, featuredImageUrl, imageExist):
-        # Copy the parameters values
-        self.featuredImageUrl = featuredImageUrl
-        self.wpUrl = wpUrl
-        self.wpLogin = wpLogin
-        self.wpPassword = wpPassword
+def get_artice_and_pageviews_from_googgle_analytics(number_articles_to_keep):
+    analytics = GoogleAnalyticsReport()
+    VIEW_ID = '227412376'
+    metrics = ['ga:pageviews']
+    dimensions = ['ga:pagePath', 'ga:pageTitle']
+    start_date, end_date = '2021-01-01', '2023-01-30'
+    response = analytics.get_report(VIEW_ID, start_date, end_date, metrics, dimensions)
+    df = analytics.to_dataframe(response)
+    df['ga:pageviews'] = df['ga:pageviews'].astype(int)
+    df = df.sort_values(by='ga:pageviews', ascending=False)
+    df = df.head(number_articles_to_keep)
+    return df
 
-        # Open connexion
-        client = Client(self.wpUrl, self.wpPassword, self.wpPassword)
-
-        if imageExist == True:
-            try:
-                # Save the image with this name
-                self.path = os.getcwd()+"\\00000001.jpg"
-                f = open(self.path, 'wb')
-                # python 2 f.write(urllib.urlopen(self.articlePhotoUrl).read())
-                f.write(urllib.request.urlopen(self.featuredImageUrl).read())
-                f.close()
-
-                filename = self.path
-                # prepare the metadata and set the approprite name
-                data = {'name': 'picture.jpg', 'type': 'image/jpg', }
-
-                # read the binary file and let the XMLRPC library encode it into base64
-                with open(filename, 'rb') as img:
-                    data['bits'] = xmlrpc_client.Binary(img.read())
-                response = client.call(media.UploadFile(data))
-                attachment_id = response['id']
-            except:
-                attachment_id = 7
-                print("Image decode Error")
-        else:
-            attachment_id = 7
-
-        # Post (the article)
-        post = WordPressPost()
-        post.title = postTitle
-        post.custom_fields = []  # Metadata if using Yoast SEO plugin
-        post.custom_fields.append({
-            'key': '_yoast_wpseo_focuskw',
-            'value': postTitle
-        })
-        post.custom_fields.append({
-            'key': '_yoast_wpseo_metadesc',
-            'value': postMetaDescription
-        })
-        post.content = postContent
-        post.terms_names = {'post_tag': postTags, 'category': postCategories}
-        post.post_status = 'publish'  # publish draft
-        post.thumbnail = attachment_id
-        post.id = client.call(posts.NewPost(post))
-        print('---->Post Uploaded: ' + postTitle + '\t Id: ' + post.id)
-
-
-'''
-#########################################
-# Add the Wordpress login details
-#########################################
-#WordPress Username
-wpLogin='***'
-#WordPress Password
-wpPassword='***'
-
-
-#########################################
-# The post (article) Details
-#########################################
-
-
-postTitle='Testing Python Script version 3' #Post Title
-postContent='Final .... Testing Fully Automated' #post content
-featuredImageUrl='http://SITENAME.fr/wp-content/uploads/elementor/thumbs/801x410_801x410_niska_du_lundi_au_lundi-or4hdnp1yzoheh5on9dylnea3tmx979tyekiry46vk.jpg' #Url of the featured image
-wpUrl='http://www.SITENAME.fr/xmlrpc.php' # the /xmlrpc.php path. Basically the same for most wordpres site. It is the posting adsresscause for the XML Server
-postTags=['code','python'] #tags of the post
-postCategories=['language','art'] #Categories of the post
-postMetaDescription =' '
-#########################################
-# Create an object of the xml rpc server and upload the post
-#########################################
-myObject	=	My_WP_XMLRPC()
-myObject.postArticle(wpUrl,wpLogin,wpPassword,postTitle, postCategories, postMetaDescription, postContent, postTags,featuredImageUrl)
-'''
-
-
-def main():
-    # Copy the parameters values
+def unpublish_all_other_articles(data):
     wpUrl = 'https://quelletaille.fr/xmlrpc.php'
-    wpLogin = 'quelletaille202ss0'
+    wpLogin = 'quelletaille2020'
     wpPassword = 'Issaka427&'
-    # Open connexion
+    offset = 0
+    post_batch_size = 100
+    number_published_articles = 0
     client = Client(wpUrl, wpLogin, wpPassword)
-    posts = client.call(posts.GetPosts())
-    print(posts[0].title)
+    while True:
+        print("--> Batch: [" + str(offset)+","+str(offset+post_batch_size)+"]")
+        posts_ = client.call(posts.GetPosts( {'offset': offset, 'number': post_batch_size}))
+        print("-> Comparing with " + str(len(posts_)) + " articles obtained from the website")
+        if len(posts_) == 0:
+            break
+        offset += post_batch_size 
+        # Get the posts in the website    
+        for post in posts_:
+            if post.post_status == 'publish':
+                #print(post.title + " - " + post.post_status + " - " + post.link)
+                #post.post_status = 'draft'
+                #client.call(posts.EditPost(post.id, post))
+                #print(post.title + " - " + post.post_status)
+
+                # Loop through the google analytics pageviews data
+                sufficent_page_views = False
+                for index, row in data.iterrows():
+                    page_link = "https://quelletaille.fr"+row.tolist()[0]
+                    page_title = row.tolist()[1]
+                    page_views = row.tolist()[2]
+                    post_link_temp = post.link
+                    
+                    if page_link[-1] == "/":
+                        page_link = page_link[:-1]
+                    if post_link_temp[-1] == "/":
+                        post_link_temp =post_link_temp[:-1]
+                    
+                    if page_link == post_link_temp:
+                        sufficent_page_views = True
+                        number_published_articles = number_published_articles+1
+                        print(page_link + " " + post.title + "\t\t\t\t" + page_title)# + "\t\t\t\t"+str(row.tolist()[2]))
+
+                if not sufficent_page_views:
+                    print("Not sufficent_page_views --------------------------------------------------------------------------------------------------------------------> " + post_link_temp + " ---------------- " + post.title + "\t\t\t\t")
+                    #post.post_status = 'draft'
+                    time.sleep(5)
+                    #try:
+                       #client.call(posts.EditPost(post.id, post))
+                    #except:
+                        #print("******")
+                        #post.thumbnail = post.thumbnail['attachment_id']
+                        #client.call(posts.EditPost(post.id, post))
+                    client.call(posts.DeletePost(post.id))
+
+    print("________________________________________________________________* number_published_articles " + str(number_published_articles) + "*________________________________________________________________")
 
 
 if __name__ == "__main__":
-    main()
+    number_articles_to_keep=1400
+    data = get_artice_and_pageviews_from_googgle_analytics(number_articles_to_keep)
+    #print(data.to_string())
+    unpublish_all_other_articles(data)
