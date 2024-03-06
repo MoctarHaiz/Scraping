@@ -6,12 +6,14 @@
 
 # Conda
 
-$ conda activate scrap
+```bash
+conda activate scrap
+````
 
 ## Sites
 
 - [x] allfamousbirthday.com
-- [ ] Coming
+- [x] astrotheme.com
 
 ## Feedback
 
